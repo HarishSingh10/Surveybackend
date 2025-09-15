@@ -43,9 +43,11 @@ const initTables = async () => {
             address VARCHAR(255),
             latitude DECIMAL(10,8),
             longitude DECIMAL(11,8),
+           
             created_at TIMESTAMP DEFAULT NOW()
         );
     `);
+
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS branches (
@@ -57,9 +59,31 @@ const initTables = async () => {
             language_preference VARCHAR(50),
             latitude DECIMAL(10,8),
             longitude DECIMAL(11,8),
-            created_at TIMESTAMP DEFAULT NOW()
+            upiid VARCHAR(100),
+            created_at TIMESTAMP DEFAULT NOW(),
+            qr_code VARCHAR(255)
         );
     `);
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback_forms (
+        id SERIAL PRIMARY KEY,
+        branch_id INT REFERENCES branches(id) ON DELETE CASCADE,
+        form_title VARCHAR(150) NOT NULL,
+        questions JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+`);
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback_responses (
+        id SERIAL PRIMARY KEY,
+        form_id INT REFERENCES feedback_forms(id) ON DELETE CASCADE,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        answers JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+`);
+
+
 };
 
 initTables(); // 👈 ensures tables exist before queries
@@ -138,11 +162,11 @@ router.get("/businesses", authMiddleware, async (req, res) => {
 // ======================================================
 router.post("/branches", authMiddleware, async (req, res) => {
     try {
-        const { business_id, branch_name, branch_address, phone, language_preference, latitude, longitude } = req.body;
+        const { business_id, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code } = req.body;
         const result = await pool.query(
-            `INSERT INTO branches (business_id, branch_name, branch_address, phone, language_preference, latitude, longitude)
-             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-            [business_id, branch_name, branch_address, phone, language_preference, latitude, longitude]
+            `INSERT INTO branches (business_id, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+            [business_id, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code]
         );
         res.json({ success: true, branch: result.rows[0] });
     } catch (err) {

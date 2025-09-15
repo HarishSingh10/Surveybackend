@@ -307,32 +307,64 @@ router.get("/businesses", authMiddleware, async (req, res) => {
 // Create branch
 const QRCode = require("qrcode");
 
+
+// ----------------- Create Branch with QR Code -----------------
+// ----------------- Create Branch with QR Code -----------------
 router.post("/branches", authMiddleware, async (req, res) => {
     try {
-        const { business_id, branch_name, branch_address, phone, language_preference, latitude, longitude } = req.body;
+        const {
+            business_id,
+            branch_name,
+            branch_address,
+            phone,
+            language_preference,
+            latitude,
+            longitude,
+            upiid,
 
-        // 1️⃣ Insert branch into DB
+        } = req.body;
+
+        // Step 1️⃣ Insert branch first (without QR)
         const result = await pool.query(
-            `INSERT INTO branches (business_id, branch_name, branch_address, phone, language_preference, latitude, longitude)
-             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-            [business_id, branch_name, branch_address, phone, language_preference, latitude, longitude]
+            `INSERT INTO branches (
+                business_id, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            RETURNING *`,
+            [
+                business_id,
+                branch_name,
+                branch_address,
+                phone,
+                language_preference,
+                latitude,
+                longitude,
+                upiid,
+
+            ]
         );
 
         const branch = result.rows[0];
 
-        // 2️⃣ Generate the URL that the QR code will point to
-        const branchUrl = `${process.env.FRONTEND_URL}/feedback?user_id=${req.user.id}&business_id=${business_id}&branch_id=${branch.id}`;
+        // Step 2️⃣ Generate QR code with correct branch.id
+        const branchUrl = `${process.env.FRONTEND_URL}/feedback?business_id=${business_id}&branch_id=${branch.id}`;
+        const qrCodeBuffer = await QRCode.toBuffer(branchUrl);
 
-        // 3️⃣ Generate QR code as a Data URL (base64)
-        const qrCodeData = await QRCode.toDataURL(branchUrl);
+        // Step 3️⃣ Update branch with QR code
+        await pool.query(`UPDATE branches SET qr_code = $1 WHERE id = $2`, [qrCodeBuffer, branch.id]);
 
-        // 4️⃣ Return branch + QR code
-        res.json({ success: true, branch, qrCode: qrCodeData });
+        // Step 4️⃣ Convert qr_code to Base64 for frontend
+        const qrCodeBase64 = `data:image/png;base64,${qrCodeBuffer.toString("base64")}`;
+
+        res.json({
+            success: true,
+            branch: { ...branch, qr_code: qrCodeBase64 },
+        });
     } catch (err) {
-        console.error(err);
+        console.error("❌ Error creating branch:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
 
 
 // Get branches of a business
@@ -347,3 +379,85 @@ router.get("/branches/:business_id", authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+// ======================================================
+// 🔹 FEEDBACK ROUTES
+// ======================================================
+
+// 1️⃣ Create a Feedback Form (Owner)
+router.post("/feedback/forms", authMiddleware, async (req, res) => {
+    try {
+        const { branch_id, form_title, questions } = req.body;
+
+        if (!branch_id || !form_title || !questions) {
+            return res.status(400).json({ success: false, message: "Missing fields" });
+        }
+
+        const result = await pool.query(
+            `INSERT INTO feedback_forms (branch_id, form_title, questions)
+             VALUES ($1,$2,$3) RETURNING *`,
+            [branch_id, form_title, JSON.stringify(questions)]
+        );
+
+        res.json({ success: true, form: result.rows[0] });
+    } catch (err) {
+        console.error("❌ Error creating feedback form:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 2️⃣ Get Feedback Forms for a Branch
+router.get("/feedback/forms/:branch_id", async (req, res) => {
+    try {
+        const { branch_id } = req.params;
+        const result = await pool.query(
+            "SELECT * FROM feedback_forms WHERE branch_id = $1",
+            [branch_id]
+        );
+        res.json({ success: true, forms: result.rows });
+    } catch (err) {
+        console.error("❌ Error fetching feedback forms:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 3️⃣ Submit Feedback (User scanning QR)
+router.post("/feedback/submit", async (req, res) => {
+    try {
+        const { form_id, user_id, answers } = req.body;
+
+        if (!form_id || !answers) {
+            return res.status(400).json({ success: false, message: "Missing fields" });
+        }
+
+        const result = await pool.query(
+            `INSERT INTO feedback_responses (form_id, user_id, answers)
+             VALUES ($1,$2,$3) RETURNING *`,
+            [form_id, user_id || null, JSON.stringify(answers)]
+        );
+
+        res.json({ success: true, response: result.rows[0] });
+    } catch (err) {
+        console.error("❌ Error submitting feedback:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 4️⃣ (Optional) Get All Feedback Responses for a Branch
+router.get("/feedback/responses/:branch_id", authMiddleware, async (req, res) => {
+    try {
+        const { branch_id } = req.params;
+
+        const result = await pool.query(
+            `SELECT r.*, f.form_title 
+             FROM feedback_responses r
+             JOIN feedback_forms f ON r.form_id = f.id
+             WHERE f.branch_id = $1`,
+            [branch_id]
+        );
+
+        res.json({ success: true, responses: result.rows });
+    } catch (err) {
+        console.error("❌ Error fetching feedback responses:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
