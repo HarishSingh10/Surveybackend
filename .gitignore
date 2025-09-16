@@ -3,5 +3,3 @@ node_modules/
 
 # Ignore environment variables file
 .env
-package-lock.json
-package.json

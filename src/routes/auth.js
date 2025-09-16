@@ -461,3 +461,43 @@ router.get("/feedback/responses/:branch_id", authMiddleware, async (req, res) =>
         res.status(500).json({ success: false, message: err.message });
     }
 });
+router.get("/branches/search", async (req, res) => {
+    try {
+        const { lat, lng, radius = 5, q = "" } = req.query;
+
+        if (!lat || !lng) {
+            return res.status(400).json({ success: false, message: "lat and lng required" });
+        }
+
+        const query = `
+            SELECT id, branch_name, branch_address, phone, latitude, longitude, qr_code,
+                (6371 * acos(
+                    cos(radians($1)) * cos(radians(latitude)) *
+                    cos(radians(longitude) - radians($2)) +
+                    sin(radians($1)) * sin(radians(latitude))
+                )) AS distance
+            FROM branches
+            WHERE branch_name ILIKE $4 || '%'
+            HAVING (6371 * acos(
+                    cos(radians($1)) * cos(radians(latitude)) *
+                    cos(radians(longitude) - radians($2)) +
+                    sin(radians($1)) * sin(radians(latitude))
+                )) < $3
+            ORDER BY distance ASC
+            LIMIT 20;
+        `;
+
+        const result = await pool.query(query, [lat, lng, radius, q]);
+
+        res.json({
+            success: true,
+            user_location: { latitude: lat, longitude: lng },
+            branches: result.rows
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+module.exports = router;
