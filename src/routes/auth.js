@@ -280,7 +280,7 @@ router.post("/businesses", authMiddleware, async (req, res) => {
     try {
         const { owner_name, shop_name, business_type, phone, address, latitude, longitude } = req.body;
         const result = await pool.query(
-            `INSERT INTO businesses (user_id, owner_name, shop_name, business_type, phone, address, latitude, longitude)
+            `INSERT INTO businesses (user_id,owner_name, shop_name, business_type, phone, address, latitude, longitude)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
             [req.user.id, owner_name, shop_name, business_type, phone, address, latitude, longitude]
         );
@@ -317,73 +317,32 @@ const QRCode = require("qrcode");
 // ----------------- Create Branch with QR Code -----------------
 router.post("/branches", authMiddleware, async (req, res) => {
     try {
-        const {
-            business_id,
-            branch_name,
-            branch_address,
-            phone,
-            language_preference,
-            latitude,
-            longitude,
-            upiid,
+        const { business_id, branches } = req.body;
 
-        } = req.body;
+        if (!business_id || !Array.isArray(branches) || branches.length === 0) {
+            return res.status(400).json({ success: false, message: "Missing fields" });
+        }
 
-        // Step 1️⃣ Insert branch first (without QR)
-        const result = await pool.query(
-            `INSERT INTO branches (
-                business_id, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            RETURNING *`,
-            [
-                business_id,
-                branch_name,
-                branch_address,
-                phone,
-                language_preference,
-                latitude,
-                longitude,
-                upiid,
+        const insertedBranches = [];
 
-            ]
-        );
+        for (const branch of branches) {
+            const { business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code } = branch;
 
-        const branch = result.rows[0];
+            const result = await pool.query(
+                `INSERT INTO branches (business_id,business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+                [business_id, business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code]
+            );
 
-        // Step 2️⃣ Generate QR code with correct branch.id
-        const branchUrl = `${process.env.FRONTEND_URL}/feedback?business_id=${business_id}&branch_id=${branch.id}`;
-        const qrCodeBuffer = await QRCode.toBuffer(branchUrl);
+            insertedBranches.push(result.rows[0]);
+        }
 
-        // Step 3️⃣ Update branch with QR code
-        await pool.query(`UPDATE branches SET qr_code = $1 WHERE id = $2`, [qrCodeBuffer, branch.id]);
-
-        // Step 4️⃣ Convert qr_code to Base64 for frontend
-        const qrCodeBase64 = `data:image/png;base64,${qrCodeBuffer.toString("base64")}`;
-
-        res.json({
-            success: true,
-            branch: { ...branch, qr_code: qrCodeBase64 },
-        });
-    } catch (err) {
-        console.error("❌ Error creating branch:", err);
-        res.status(500).json({ success: false, message: err.message });
-    }
-});
-
-
-
-// Get branches of a business
-router.get("/branches/id/:business_id", authMiddleware, async (req, res) => {
-    try {
-        const { business_id } = req.params;
-        const result = await pool.query("SELECT * FROM branches WHERE business_id=$1", [business_id]);
-        res.json({ success: true, branches: result.rows });
+        res.json({ success: true, branches: insertedBranches });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-module.exports = router;
 // ======================================================
 // 🔹 FEEDBACK ROUTES
 // ======================================================

@@ -56,6 +56,7 @@ const initTables = async () => {
         CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY,
             business_id INT REFERENCES businesses(id) ON DELETE CASCADE,
+            business_name VARCHAR(100),
             branch_name VARCHAR(150) NOT NULL,
             branch_address VARCHAR(255),
             phone VARCHAR(15),
@@ -64,7 +65,7 @@ const initTables = async () => {
             longitude DECIMAL(11,8),
             upiid VARCHAR(100),
             created_at TIMESTAMP DEFAULT NOW(),
-            qr_code VARCHAR(255)
+            qr_code BYTEA
         );
     `);
     await pool.query(`
