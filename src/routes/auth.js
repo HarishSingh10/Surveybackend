@@ -280,7 +280,7 @@ router.post("/businesses", authMiddleware, async (req, res) => {
     try {
         const { owner_name, shop_name, business_type, phone, address, latitude, longitude } = req.body;
         const result = await pool.query(
-            `INSERT INTO businesses (user_id,owner_name, shop_name, business_type, phone, address, latitude, longitude)
+            `INSERT INTO businesses (user_id, owner_name, shop_name, business_type, phone, address, latitude, longitude)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
             [req.user.id, owner_name, shop_name, business_type, phone, address, latitude, longitude]
         );
@@ -317,32 +317,85 @@ const QRCode = require("qrcode");
 // ----------------- Create Branch with QR Code -----------------
 router.post("/branches", authMiddleware, async (req, res) => {
     try {
-        const { business_id, branches } = req.body;
+        const { business_id, branches } = req.body; // ✅ business_id comes once
 
-        if (!business_id || !Array.isArray(branches) || branches.length === 0) {
-            return res.status(400).json({ success: false, message: "Missing fields" });
+        if (!business_id || !branches || !Array.isArray(branches) || branches.length === 0) {
+            return res.status(400).json({ success: false, message: "business_id and branches array are required" });
         }
 
-        const insertedBranches = [];
+        let createdBranches = [];
 
-        for (const branch of branches) {
-            const { business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code } = branch;
+        for (const b of branches) {
+            const {
+                branch_name,
+                business_name,
+                branch_address,
+                phone,
+                language_preference,
+                latitude,
+                longitude,
+                upiid
+            } = b;
 
+            // Step 1️⃣ Insert branch
             const result = await pool.query(
-                `INSERT INTO branches (business_id,business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-                [business_id, business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid, qr_code]
+                `INSERT INTO branches (
+                    business_id,business_name, branch_name, branch_address, phone, language_preference, latitude, longitude, upiid
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                RETURNING *`,
+                [
+                    business_id,
+                    business_name,
+                    branch_name,
+                    branch_address,
+                    phone,
+                    language_preference,
+                    latitude,
+                    longitude,
+                    upiid
+                ]
             );
 
-            insertedBranches.push(result.rows[0]);
+            const branch = result.rows[0];
+
+            // Step 2️⃣ Generate QR code
+            const branchUrl = `${process.env.FRONTEND_URL}/feedback?business_id=${business_id}&branch_id=${branch.id}`;
+            const qrCodeBuffer = await QRCode.toBuffer(branchUrl);
+
+            // Step 3️⃣ Update branch with QR code
+            await pool.query(`UPDATE branches SET qr_code = $1 WHERE id = $2`, [qrCodeBuffer, branch.id]);
+
+            // Step 4️⃣ Convert QR to Base64
+            const qrCodeBase64 = `data:image/png;base64,${qrCodeBuffer.toString("base64")}`;
+
+            createdBranches.push({ ...branch, qr_code: qrCodeBase64 });
         }
 
-        res.json({ success: true, branches: insertedBranches });
+        res.json({
+            success: true,
+            branches: createdBranches,
+        });
+    } catch (err) {
+        console.error("❌ Error creating branches:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+
+
+
+// Get branches of a business
+router.get("/branches/id/:business_id", authMiddleware, async (req, res) => {
+    try {
+        const { business_id } = req.params;
+        const result = await pool.query("SELECT * FROM branches WHERE business_id=$1", [business_id]);
+        res.json({ success: true, branches: result.rows });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
+module.exports = router;
 // ======================================================
 // 🔹 FEEDBACK ROUTES
 // ======================================================
