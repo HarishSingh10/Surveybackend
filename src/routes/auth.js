@@ -97,9 +97,9 @@ router.post("/verify-otp", async (req, res) => {
         const hashedPassword = await bcrypt.hash(record.data.password, 10);
 
         const newUser = await pool.query(
-            `INSERT INTO users (first_name, last_name, email, password, phone, address, is_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, true)
-       RETURNING id, first_name, last_name, email, phone, address`,
+            `INSERT INTO users (first_name, last_name, email, password, phone, address, is_verified,has_business)
+       VALUES ($1, $2, $3, $4, $5, $6, true,false)
+       RETURNING id, first_name, last_name, email, phone, address,has_business`,
             [record.data.first_name, record.data.last_name, record.data.email, hashedPassword, record.data.phone, record.data.address]
         );
 
@@ -284,8 +284,13 @@ router.post("/businesses", authMiddleware, async (req, res) => {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
             [req.user.id, owner_name, shop_name, business_type, phone, address, latitude, longitude]
         );
+        await pool.query("UPDATE users SET has_business = true WHERE id = $1", [req.user.id]);
+
         res.json({ success: true, business: result.rows[0] });
-    } catch (err) {
+    }
+
+
+    catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
@@ -368,7 +373,7 @@ router.post("/branches", authMiddleware, async (req, res) => {
 
 
 // Get branches of a business
-router.get("/branches/:business_id", authMiddleware, async (req, res) => {
+router.get("/branches/id/:business_id", authMiddleware, async (req, res) => {
     try {
         const { business_id } = req.params;
         const result = await pool.query("SELECT * FROM branches WHERE business_id=$1", [business_id]);
@@ -470,29 +475,28 @@ router.get("/branches/search", async (req, res) => {
         }
 
         const query = `
-            SELECT id, branch_name, branch_address, phone, latitude, longitude, qr_code,
-                (6371 * acos(
-                    cos(radians($1)) * cos(radians(latitude)) *
-                    cos(radians(longitude) - radians($2)) +
-                    sin(radians($1)) * sin(radians(latitude))
-                )) AS distance
-            FROM branches
-            WHERE branch_name ILIKE $4 || '%'
-            HAVING (6371 * acos(
-                    cos(radians($1)) * cos(radians(latitude)) *
-                    cos(radians(longitude) - radians($2)) +
-                    sin(radians($1)) * sin(radians(latitude))
-                )) < $3
-            ORDER BY distance ASC
-            LIMIT 20;
-        `;
+      SELECT *
+      FROM (
+          SELECT id, branch_name, branch_address, phone, latitude, longitude, qr_code,
+              (6371 * acos(
+                  cos(radians($1)) * cos(radians(latitude)) *
+                  cos(radians(longitude) - radians($2)) +
+                  sin(radians($1)) * sin(radians(latitude))
+              )) AS distance
+          FROM branches
+          WHERE ($4 = '' OR branch_name ILIKE $4 || '%')
+      ) sub
+      WHERE distance < $3
+      ORDER BY distance ASC
+      LIMIT 20;
+    `;
 
         const result = await pool.query(query, [lat, lng, radius, q]);
 
         res.json({
             success: true,
             user_location: { latitude: lat, longitude: lng },
-            branches: result.rows
+            branches: result.rows,
         });
     } catch (err) {
         console.error(err);

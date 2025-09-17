@@ -17,7 +17,7 @@ const pool = new Pool({
 // ======================================================
 const initTables = async () => {
     await pool.query(`
-        CREATE TABLE IF NOT EXISTS users (
+       CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             first_name VARCHAR(100) NOT NULL,
             last_name VARCHAR(100) NOT NULL,
@@ -27,9 +27,12 @@ const initTables = async () => {
             phone VARCHAR(15) UNIQUE,
             refresh_token TEXT,
             is_verified BOOLEAN DEFAULT FALSE,
+            has_business BOOLEAN DEFAULT FALSE, 
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
-        );
+         );
+
+        
     `);
 
     await pool.query(`
