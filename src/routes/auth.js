@@ -438,26 +438,66 @@ router.get("/feedback/forms/:branch_id", async (req, res) => {
 });
 
 // 3️⃣ Submit Feedback (User scanning QR)
+// 3️⃣ Submit Feedback (User scanning QR)
+// 3️⃣ Submit Feedback (User scanning QR) + Generate Coupon if eligible
 router.post("/feedback/submit", async (req, res) => {
     try {
-        const { form_id, user_id, answers } = req.body;
+        const { form_id, user_iid, overall_score, answers } = req.body;
 
-        if (!form_id || !answers) {
+        if (!form_id || !answers || !overall_score) {
             return res.status(400).json({ success: false, message: "Missing fields" });
         }
 
-        const result = await pool.query(
-            `INSERT INTO feedback_responses (form_id, user_id, answers)
-             VALUES ($1,$2,$3) RETURNING *`,
-            [form_id, user_id || null, JSON.stringify(answers)]
+        if (overall_score < 1 || overall_score > 5) {
+            return res.status(400).json({ success: false, message: "Overall score must be between 1 and 5" });
+        }
+
+        // 1️⃣ Save feedback response
+        const feedbackResult = await pool.query(
+            `INSERT INTO feedback_responses (form_id, user_iid, overall_score, answers)
+             VALUES ($1,$2,$3,$4) RETURNING *`,
+            [form_id, user_iid || null, overall_score, JSON.stringify(answers)]
         );
 
-        res.json({ success: true, response: result.rows[0] });
+        const feedback = feedbackResult.rows[0];
+
+        // 2️⃣ Get admin coupon rule
+        const settingsResult = await pool.query(
+            `SELECT * FROM coupon_settings WHERE type='feedback' LIMIT 1`
+        );
+        const settings = settingsResult.rows[0];
+
+        let coupon = null;
+
+        // 3️⃣ Check if user qualifies for a coupon
+        if (settings && overall_score >= settings.min_score) {
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + settings.validity_days);
+
+            const couponCode = `FB-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+            const couponResult = await pool.query(
+                `INSERT INTO coupons (customer_id, type, code, value, expires_at)
+                 VALUES ($1,$2,$3,$4,$5)
+                 RETURNING *`,
+                [user_iid, "feedback", couponCode, settings.value, expiresAt]
+            );
+
+            coupon = couponResult.rows[0];
+        }
+
+        res.json({
+            success: true,
+            message: "Feedback submitted successfully",
+            feedback,
+            coupon: coupon || null
+        });
     } catch (err) {
         console.error("❌ Error submitting feedback:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
 
 // 4️⃣ (Optional) Get All Feedback Responses for a Branch
 router.get("/feedback/responses/:branch_id", authMiddleware, async (req, res) => {

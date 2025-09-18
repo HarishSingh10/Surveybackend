@@ -81,11 +81,47 @@ const initTables = async () => {
     CREATE TABLE IF NOT EXISTS feedback_responses (
         id SERIAL PRIMARY KEY,
         form_id INT REFERENCES feedback_forms(id) ON DELETE CASCADE,
-        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        user_iid INT REFERENCES coustomer(id) ON DELETE CASCADE,
         answers JSONB NOT NULL,
+        overall_score SMALLINT NOT NULL CHECK (overall_score BETWEEN 1 AND 5),
         created_at TIMESTAMP DEFAULT NOW()
     );
 `);
+
+    // ✅ your existing tables (users, businesses, branches, feedback_forms, feedback_responses...)
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS coupons (
+            id SERIAL PRIMARY KEY,
+            customer_id INT REFERENCES coustomer(id) ON DELETE CASCADE,
+            type VARCHAR(50) NOT NULL DEFAULT 'feedback',
+            code VARCHAR(50) UNIQUE NOT NULL,
+            value INT NOT NULL,
+            is_redeemed BOOLEAN DEFAULT FALSE,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS coupon_settings (
+            id SERIAL PRIMARY KEY,
+            type VARCHAR(50) NOT NULL UNIQUE,
+            min_score INT DEFAULT 4,          -- Minimum overall_score required
+            value INT DEFAULT 100,            -- Coupon value
+            validity_days INT DEFAULT 30,     -- Expiry in days
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+    `);
+
+    // Insert default feedback rule if not exists
+    await pool.query(`
+        INSERT INTO coupon_settings (type, min_score, value, validity_days)
+        VALUES ('feedback', 4, 100, 30)
+        ON CONFLICT (type) DO NOTHING;
+    `);
+
+
 
 
 };
