@@ -163,7 +163,7 @@ router.post("/login-verify-otp", async (req, res) => {
         res.json({
             success: true,
             message: "Login successful",
-            user: { id: user.id, first_name: user.first_name, last_name: user.last_name, email: user.email, phone: user.phone },
+            user: { id: user.id, first_name: user.first_name, last_name: user.last_name, email: user.email, phone: user.phone, address: user.address, has_business: user.has_business },
             accessToken,
             refreshToken,
         });
@@ -555,5 +555,10 @@ router.get("/branches/search", async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
+
+
+
+
 
 module.exports = router;

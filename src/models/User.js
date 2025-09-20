@@ -52,6 +52,7 @@ const initTables = async () => {
     `);
 
 
+
     await pool.query(`
         CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY,
