@@ -557,7 +557,51 @@ router.get("/branches/search", async (req, res) => {
 });
 
 
+router.get("/branches", async (req, res) => {
+    try {
+        const { business_id, branch_id } = req.query;
 
+        if (!business_id && !branch_id) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide business_id or branch_id",
+            });
+        }
+
+        let query = "SELECT * FROM branches WHERE ";
+        const params = [];
+
+        if (business_id) {
+            params.push(business_id);
+            query += `business_id = $${params.length}`;
+        }
+
+        if (branch_id) {
+            if (params.length > 0) query += " AND ";
+            params.push(branch_id);
+            query += `id = $${params.length}`;
+        }
+
+        const { rows } = await pool.query(query, params);
+
+        // Convert qr_code buffer to Base64 for each branch
+        const branchesWithQR = rows.map(branch => {
+            let qr_code_base64 = null;
+            if (branch.qr_code) {
+                qr_code_base64 = `data:image/png;base64,${branch.qr_code.toString("base64")}`;
+            }
+            return { ...branch, qr_code: qr_code_base64 };
+        });
+
+        res.json({
+            success: true,
+            branches: branchesWithQR,
+        });
+    } catch (err) {
+        console.error("❌ Error fetching branches:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
 
 
 
