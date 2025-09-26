@@ -359,7 +359,7 @@ router.post("/branches", authMiddleware, async (req, res) => {
             const branch = result.rows[0];
 
             // Step 2️⃣ Generate QR code
-            const branchUrl = `${process.env.FRONTEND_URL}/feedback?business_id=${business_id}&branch_id=${branch.id}`;
+            const branchUrl = `${process.env.FRONTEND_URL}/business_id=${business_id}&branch_id=${branch.id}`;
             const qrCodeBuffer = await QRCode.toBuffer(branchUrl);
 
             // Step 3️⃣ Update branch with QR code
