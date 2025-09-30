@@ -196,7 +196,113 @@ router.get("/feedback/owner-responses", authMiddleware, async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 });
+router.put("/feedback-forms/:form_id/questions", authMiddleware, async (req, res) => {
+    try {
+        const { form_id } = req.params;
+        const { questions } = req.body;
+
+        if (!questions || !Array.isArray(questions)) {
+            return res.status(400).json({
+                success: false,
+                message: "Questions must be an array",
+            });
+        }
+
+        const updatedForm = await pool.query(
+            "UPDATE feedback_forms SET questions = $1 WHERE id = $2 RETURNING *",
+            [JSON.stringify(questions), form_id]   // ✅ convert array to JSON string
+        );
+
+        if (updatedForm.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Form not found" });
+        }
+
+        res.json({
+            success: true,
+            message: "Questions updated successfully",
+            form: updatedForm.rows[0],
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+});
+
+
+
+
+// adjust as needed
 
 
 module.exports = router;
 
+router.get("/analytics/overview", authMiddleware, async (req, res) => {
+    try {
+        const ownerId = req.user.id;
+
+        const analyticsResult = await pool.query(`
+      SELECT fr.overall_score, fr.created_at
+      FROM feedback_responses fr
+      JOIN feedback_forms ff ON fr.form_id = ff.id
+      JOIN branches b ON ff.branch_id = b.id
+      JOIN businesses bs ON b.business_id = bs.id
+      WHERE bs.user_id = $1
+    `, [ownerId]);
+
+        const responses = analyticsResult.rows;
+
+        // Basic metrics
+        const total_reviews = responses.length;
+        const average_rating = total_reviews
+            ? (responses.reduce((sum, r) => sum + r.overall_score, 0) / total_reviews).toFixed(2)
+            : 0;
+
+        const positive_reviews = responses.filter(r => r.overall_score >= 4).length;
+        const negative_reviews = responses.filter(r => r.overall_score <= 2).length;
+
+        // ✅ Weekly Data (last 4 weeks)
+        const weeklyData = Array(4).fill(0).map((_, i) => {
+            const weekStart = new Date();
+            weekStart.setDate(weekStart.getDate() - (i * 7));
+            const weekEnd = new Date();
+            weekEnd.setDate(weekEnd.getDate() - (i * 7) + 7);
+
+            const count = responses.filter(r => {
+                const date = new Date(r.created_at);
+                return date >= weekStart && date < weekEnd;
+            }).length;
+
+            return { week: `Week ${4 - i}`, count };
+        }).reverse();
+
+        // ✅ Monthly Data (last 6 months)
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const monthlyData = Array(6).fill(0).map((_, i) => {
+            const date = new Date();
+            date.setMonth(date.getMonth() - i);
+            const month = monthNames[date.getMonth()];
+            const year = date.getFullYear();
+
+            const count = responses.filter(r => {
+                const d = new Date(r.created_at);
+                return d.getMonth() === date.getMonth() && d.getFullYear() === year;
+            }).length;
+
+            return { month, count };
+        }).reverse();
+
+        res.json({
+            success: true,
+            total_reviews,
+            average_rating,
+            positive_reviews,
+            negative_reviews,
+            weeklyData,
+            monthlyData
+        });
+
+    } catch (err) {
+        console.error("Error in analytics:", err.message);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+});
