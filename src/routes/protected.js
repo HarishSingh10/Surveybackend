@@ -236,22 +236,36 @@ router.put("/feedback-forms/:form_id/questions", authMiddleware, async (req, res
 
 module.exports = router;
 
+
+
+
 router.get("/analytics/overview", authMiddleware, async (req, res) => {
     try {
         const ownerId = req.user.id;
+        const period = req.query.period || "all"; // ✅ week | month | all
 
         const analyticsResult = await pool.query(`
-      SELECT fr.overall_score, fr.created_at
-      FROM feedback_responses fr
-      JOIN feedback_forms ff ON fr.form_id = ff.id
-      JOIN branches b ON ff.branch_id = b.id
-      JOIN businesses bs ON b.business_id = bs.id
-      WHERE bs.user_id = $1
-    `, [ownerId]);
+          SELECT fr.overall_score, fr.created_at, fr.answers
+          FROM feedback_responses fr
+          JOIN feedback_forms ff ON fr.form_id = ff.id
+          JOIN branches b ON ff.branch_id = b.id
+          JOIN businesses bs ON b.business_id = bs.id
+          WHERE bs.user_id = $1
+        `, [ownerId]);
 
-        const responses = analyticsResult.rows;
+        let responses = analyticsResult.rows;
 
-        // Basic metrics
+        // ✅ Filter based on period
+        const now = new Date();
+        if (period === "week") {
+            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Sunday
+            responses = responses.filter(r => new Date(r.created_at) >= startOfWeek);
+        } else if (period === "month") {
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            responses = responses.filter(r => new Date(r.created_at) >= startOfMonth);
+        }
+
+        // ✅ Metrics
         const total_reviews = responses.length;
         const average_rating = total_reviews
             ? (responses.reduce((sum, r) => sum + r.overall_score, 0) / total_reviews).toFixed(2)
@@ -259,43 +273,44 @@ router.get("/analytics/overview", authMiddleware, async (req, res) => {
 
         const positive_reviews = responses.filter(r => r.overall_score >= 4).length;
         const negative_reviews = responses.filter(r => r.overall_score <= 2).length;
+        const neutral_reviews = responses.filter(r => r.overall_score === 3).length;
 
-        // ✅ Weekly Data (last 4 weeks)
-        const weeklyData = Array(4).fill(0).map((_, i) => {
-            const weekStart = new Date();
-            weekStart.setDate(weekStart.getDate() - (i * 7));
-            const weekEnd = new Date();
-            weekEnd.setDate(weekEnd.getDate() - (i * 7) + 7);
+        // ✅ Fixed Weekly Trend (Last 4 complete weeks)
+        const weeklyData = Array.from({ length: 4 }).map((_, i) => {
+            const start = new Date();
+            start.setDate(start.getDate() - (i + 1) * 7);
+            const end = new Date();
+            end.setDate(end.getDate() - i * 7);
 
             const count = responses.filter(r => {
                 const date = new Date(r.created_at);
-                return date >= weekStart && date < weekEnd;
+                return date >= start && date < end;
             }).length;
 
             return { week: `Week ${4 - i}`, count };
         }).reverse();
 
-        // ✅ Monthly Data (last 6 months)
+        // ✅ Monthly Trend (Last 6 months)
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const monthlyData = Array(6).fill(0).map((_, i) => {
+        const monthlyData = Array.from({ length: 6 }).map((_, i) => {
             const date = new Date();
             date.setMonth(date.getMonth() - i);
-            const month = monthNames[date.getMonth()];
-            const year = date.getFullYear();
 
             const count = responses.filter(r => {
                 const d = new Date(r.created_at);
-                return d.getMonth() === date.getMonth() && d.getFullYear() === year;
+                return d.getMonth() === date.getMonth() && d.getFullYear() === date.getFullYear();
             }).length;
 
-            return { month, count };
+            return { month: `${monthNames[date.getMonth()]} ${date.getFullYear()}`, count };
         }).reverse();
 
         res.json({
             success: true,
+            period,
             total_reviews,
             average_rating,
             positive_reviews,
+            neutral_reviews,
             negative_reviews,
             weeklyData,
             monthlyData
@@ -306,3 +321,12 @@ router.get("/analytics/overview", authMiddleware, async (req, res) => {
         res.status(500).json({ success: false, message: "Server Error" });
     }
 });
+
+
+
+
+
+
+
+
+
