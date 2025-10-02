@@ -242,23 +242,32 @@ module.exports = router;
 router.get("/analytics/overview", authMiddleware, async (req, res) => {
     try {
         const ownerId = req.user.id;
-        const period = req.query.period || "all"; // ✅ week | month | all
+        const period = req.query.period || "all";      // week | month | all
+        const branchId = req.query.branch_id || "all"; // specific branch ID or "all"
 
-        const analyticsResult = await pool.query(`
-          SELECT fr.overall_score, fr.created_at, fr.answers
-          FROM feedback_responses fr
-          JOIN feedback_forms ff ON fr.form_id = ff.id
-          JOIN branches b ON ff.branch_id = b.id
-          JOIN businesses bs ON b.business_id = bs.id
-          WHERE bs.user_id = $1
-        `, [ownerId]);
+        let query = `
+            SELECT fr.overall_score, fr.created_at
+            FROM feedback_responses fr
+            JOIN feedback_forms ff ON fr.form_id = ff.id
+            JOIN branches b ON ff.branch_id = b.id
+            JOIN businesses bs ON b.business_id = bs.id
+            WHERE bs.user_id = $1
+        `;
+        let queryParams = [ownerId];
 
+        // ✅ If branch filter applied
+        if (branchId !== "all") {
+            query += ` AND b.id = $2`;
+            queryParams.push(branchId);
+        }
+
+        const analyticsResult = await pool.query(query, queryParams);
         let responses = analyticsResult.rows;
 
-        // ✅ Filter based on period
+        // ✅ Period Filter
         const now = new Date();
         if (period === "week") {
-            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Sunday
+            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
             responses = responses.filter(r => new Date(r.created_at) >= startOfWeek);
         } else if (period === "month") {
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -275,18 +284,16 @@ router.get("/analytics/overview", authMiddleware, async (req, res) => {
         const negative_reviews = responses.filter(r => r.overall_score <= 2).length;
         const neutral_reviews = responses.filter(r => r.overall_score === 3).length;
 
-        // ✅ Fixed Weekly Trend (Last 4 complete weeks)
+        // ✅ Weekly Trend (Last 4 weeks)
         const weeklyData = Array.from({ length: 4 }).map((_, i) => {
             const start = new Date();
             start.setDate(start.getDate() - (i + 1) * 7);
             const end = new Date();
             end.setDate(end.getDate() - i * 7);
-
             const count = responses.filter(r => {
                 const date = new Date(r.created_at);
                 return date >= start && date < end;
             }).length;
-
             return { week: `Week ${4 - i}`, count };
         }).reverse();
 
@@ -295,18 +302,17 @@ router.get("/analytics/overview", authMiddleware, async (req, res) => {
         const monthlyData = Array.from({ length: 6 }).map((_, i) => {
             const date = new Date();
             date.setMonth(date.getMonth() - i);
-
             const count = responses.filter(r => {
                 const d = new Date(r.created_at);
                 return d.getMonth() === date.getMonth() && d.getFullYear() === date.getFullYear();
             }).length;
-
             return { month: `${monthNames[date.getMonth()]} ${date.getFullYear()}`, count };
         }).reverse();
 
         res.json({
             success: true,
             period,
+            branch_id: branchId,
             total_reviews,
             average_rating,
             positive_reviews,
